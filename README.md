@@ -1,4 +1,6 @@
 Gemini AI Studio Fine-Tuning Dataset Creator
+
+
 A PyQt5-based GUI application designed to generate structured fine-tuning datasets in the Dolly format using Google Gemini AI. This tool is particularly useful for creating high-quality training data from technical manuals or any subject-specific content.
 Features
 

@@ -1,3 +1,4 @@
+
 #  Gemini AI Studio Fine-Tuning Dataset Creator
 
 A **PyQt5-based GUI application** designed to generate **fine-tuning datasets** from technical manuals using **Google Gemini AI**.

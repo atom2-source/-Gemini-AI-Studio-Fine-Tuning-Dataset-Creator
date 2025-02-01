@@ -1,19 +1,29 @@
+Gemini AI Studio Fine-Tuning Dataset Creator
+A PyQt5-based GUI application designed to generate structured fine-tuning datasets in the Dolly format using Google Gemini AI. This tool is particularly useful for creating high-quality training data from technical manuals or any subject-specific content.
+Features
 
-#  Gemini AI Studio Fine-Tuning Dataset Creator
+Dolly Format Dataset Generation: Creates training data following the Dolly instruction format, which includes instruction, context, response, and category fields
+Bulk Context & Category Labeling: Add consistent context and category labels across all entries for efficient dataset organization
+Flexible Subject Support: While designed for technical manuals, it works with any subject matter - just set the "machine name" to your topic of interest (e.g., "green tree frogs", "quantum physics")
+Reference Q&A Integration: Input previous Q&A pairs to avoid duplicates and guide new question generation
+Dark Mode Interface: Material Design-inspired dark theme for comfortable extended use
+Multiple Gemini Models: Support for various Gemini AI models with real-time rate limit tracking
+File Management: Import source text from files and export structured datasets in JSON or text format
 
-A **PyQt5-based GUI application** designed to generate **fine-tuning datasets** from technical manuals using **Google Gemini AI**.
+Rate Limiting & API Usage
+The application includes real-time tracking of API usage with built-in rate limiting for different Gemini models. This helps prevent hitting API limits while working with larger datasets.
+Installation & Setup
 
----
+Clone the repository
+Install required packages
+Set your GEMINI_API_KEY environment variable
+Run the application
 
-##  Features
-- **To use with other manuals or files set the machine name to subject of interest like green tree frogs etc
-- **Fine-Tuning Dataset Generation:** Extract structured Q&A pairs from manuals for AI fine-tuning.
-- **Customizable Queries:** Users can input example Q&A pairs to guide dataset creation.
-- **Machine-Specific Extraction:** Generates structured datasets, including machine names and part numbers.
-- **Dark Mode UI:** A sleek, Material Design-inspired dark theme.
-- **Multiple Gemini Models Supported:** Choose from different Gemini AI models.
-- **File Import & Export:** Load manuals from files & export datasets in **JSON** or **text format**.
-
----
-
-![Screenshot 2025-02-01 143408](https://github.com/user-attachments/assets/7ae99df9-64fe-4e63-a685-d2a13073e45f)
+Dataset Format
+The tool now generates data in the Dolly instruction format:
+jsonCopy{
+    "instruction": "Question or task to be performed",
+    "context": "Relevant context or environment",
+    "response": "Detailed answer or response",
+    "category": "Classification or type of query"
+}

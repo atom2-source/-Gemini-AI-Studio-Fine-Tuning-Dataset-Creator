@@ -19,6 +19,7 @@ import json
 import time
 from pathlib import Path
 import logging
+
 from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -27,13 +28,16 @@ from PyQt5.QtWidgets import (
 )
 import google.generativeai as genai
 
+###############################################################################
+# Rate Limiter (for tracking API usage)
+###############################################################################
 class RateLimiter:
     MODELS = {
         'gemini-1.5-flash': {'rpm': 15, 'daily': 1500},
         'gemini-1.5-flash-8b': {'rpm': 15, 'daily': 1500},
         'gemini-1.5-pro': {'rpm': 2, 'daily': 50},
         'gemini-2.0-flash': {'rpm': 10, 'daily': 1500},
-        'gemini-2.0-flash-thinking': {'rpm': 10, 'daily': 1500}
+        'gemini-2.0-flash-thinking': {'rpm': 10, 'daily': 1500},
     }
     
     def __init__(self):
@@ -127,16 +131,21 @@ class RateLimiter:
             }
         return status
 
+###############################################################################
+# Gemini Worker (modified for Dolly format with context and category)
+###############################################################################
 class GeminiOneShotWorker(QThread):
     progress_msg = pyqtSignal(str)
     finished = pyqtSignal(str)
 
-    def __init__(self, text, model_name, generation_config, machine_name, additional_qa, parent=None):
+    def __init__(self, text, model_name, generation_config, machine_name, context, category, additional_qa, parent=None):
         super().__init__(parent)
         self.text = text
         self.model_name = model_name
         self.generation_config = generation_config
         self.machine_name = machine_name
+        self.context = context
+        self.category = category
         self.additional_qa = additional_qa
 
     def run(self):
@@ -147,12 +156,12 @@ class GeminiOneShotWorker(QThread):
                 generation_config=self.generation_config
             )
             chat_session = model.start_chat(history=[])
-            prompt = self.build_prompt(self.text, self.machine_name, self.additional_qa)
+            prompt = self.build_prompt(self.text, self.machine_name, self.context, self.category, self.additional_qa)
             self.update_log("Sending manual to Gemini...")
             response = chat_session.send_message(prompt)
             raw_text = response.text or ""
             
-            self.update_log(f"Raw response received: {raw_text[:500]}...")
+            self.update_log(f"Raw response received (first 500 chars): {raw_text[:500]}...")
             parsed_response = self.parse_response(raw_text)
             
             if isinstance(parsed_response, (dict, list)):
@@ -165,23 +174,27 @@ class GeminiOneShotWorker(QThread):
             self.update_log(error_msg)
             self.finished.emit(error_msg)
 
-    def build_prompt(self, input_text, machine_name, additional_qa):
+    def build_prompt(self, input_text, machine_name, context, category, additional_qa):
         few_shot_examples = (
-        "Example Manual Excerpt:\n"
-        "Machine: CNC Lathe\n"
-        "Part: Main Spindle, part number 1234567, operates at 2000 RPM, requires lubrication every 500 hours.\n\n"
-        "Expected Output (Fine-Tuning Dataset Entry):\n"
-        "[\n"
-        "  {\n"
-        '    "question": "For CNC Lathe, what is the part number for the Main Spindle?",\n'
-        '    "answer": "1234567"\n'
-        "  },\n"
-        "  {\n"
-        '    "question": "For CNC Lathe, what are the operational details of the Main Spindle?",\n'
-        '    "answer": "Operates at 2000 RPM and requires lubrication every 500 hours."\n'
-        "  }\n"
-        "]\n"
-    )
+            "Example Manual Excerpt:\n"
+            "Machine: CNC Lathe\n"
+            "Part: Main Spindle, part number 1234567, operates at 2000 RPM, requires lubrication every 500 hours.\n\n"
+            "Expected Output (Fine-Tuning Dataset Entry):\n"
+            "[\n"
+            "  {\n"
+            '    "instruction": "For CNC Lathe, what is the part number for the Main Spindle?",\n'
+            '    "context": "Industrial environment",\n'
+            '    "response": "1234567",\n'
+            '    "category": "Spindle"\n'
+            "  },\n"
+            "  {\n"
+            '    "instruction": "For CNC Lathe, what are the operational details of the Main Spindle?",\n'
+            '    "context": "Industrial environment",\n'
+            '    "response": "Operates at 2000 RPM and requires lubrication every 500 hours.",\n'
+            '    "category": "Spindle"\n'
+            "  }\n"
+            "]\n"
+        )
         
         qa_prompt = ""
         if additional_qa:
@@ -192,17 +205,25 @@ class GeminiOneShotWorker(QThread):
                 "Ensure your generated dataset covers any details or parts not already addressed by the examples.\n\n"
             )
     
+        # If either context or category is empty, instruct the model to deduce them from the text.
+        if context.strip() == "" or category.strip() == "":
+            context_instruction = "If context and category are not provided, please deduce appropriate values from the manual text."
+        else:
+            context_instruction = f"Use the following values for all entries:\n   Context: {context}\n   Category: {category}\n\n"
+
         prompt = (
-            "You are an expert in comprehending technical manuals and creating fine-tuning datasets. Your task is to extract every detail from the manual provided below. "
-            "For each part mentioned, generate at least one new question that includes the machine name (as specified) and asks for the part number, along with additional questions covering operational or descriptive details. "
+            "You are an expert at reading technical manuals and creating fine-tuning datasets in the Dolly format. "
+            "Your task is to extract every detail from the manual provided below. For each part mentioned, generate at least one new question that includes "
+            "the machine name (as specified) and asks for the part number, along with additional questions covering operational or descriptive details. "
             "Do NOT repeat any questions or answers already provided in the reference examples. Instead, produce new and unique fine-tuning dataset entries that cover any missing details. "
-            "Your output must be a JSON array where each element is an object with two keys: 'question' and 'answer'. "
-            "Ensure that every question includes the machine name and that the answer contains correct information based on the manual.\n\n"
-            f"{few_shot_examples}\n"
-            f"{qa_prompt}"
+            "Your output must be a JSON array where each element is an object with the following keys: 'instruction', 'context', 'response', and 'category'.\n\n"
+            + context_instruction + "\n"
+            + few_shot_examples + "\n"
+            + qa_prompt +
             f"Machine Name: {machine_name}\n\n"
             "Manual Text:\n"
-            f"{input_text}"
+            f"{input_text}\n\n"
+            "Make sure that every generated question includes the machine name and that the 'context' and 'category' fields are populated appropriately."
         )
         return prompt
 
@@ -210,17 +231,20 @@ class GeminiOneShotWorker(QThread):
         try:
             return json.loads(raw_text)
         except json.JSONDecodeError:
+            # If the raw text is not valid JSON, return it as-is.
             return raw_text
 
     def update_log(self, msg):
         self.progress_msg.emit(msg)
 
-class GeminiTesterApp(QMainWindow):
+###############################################################################
+# Main Application
+###############################################################################
+class GeminiDollyDatasetCreatorApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        # Updated window title to reflect fine-tuning dataset creation
-        self.setWindowTitle("Gemini AI Studio Fine-Tuning Dataset Creator")
-        self.setGeometry(100, 100, 800, 700)
+        self.setWindowTitle("Gemini AI Studio Dolly Dataset Creator")
+        self.setGeometry(100, 100, 850, 750)
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -253,11 +277,25 @@ class GeminiTesterApp(QMainWindow):
         machine_layout.addWidget(self.machine_edit)
         layout.addLayout(machine_layout)
 
-        # Additional Q&A input layout (optional)
+        # Context and Category input layout (bulk labeling)
+        extra_layout = QHBoxLayout()
+        context_label = QLabel("Context:")
+        self.context_edit = QLineEdit()
+        self.context_edit.setPlaceholderText("Enter context (e.g., operating conditions, location, etc.)")
+        category_label = QLabel("Category:")
+        self.category_edit = QLineEdit()
+        self.category_edit.setPlaceholderText("Enter category (e.g., motor, sensor, etc.)")
+        extra_layout.addWidget(context_label)
+        extra_layout.addWidget(self.context_edit)
+        extra_layout.addWidget(category_label)
+        extra_layout.addWidget(self.category_edit)
+        layout.addLayout(extra_layout)
+
+        # Additional Q&A input layout (for excluding duplicates)
         qa_layout = QVBoxLayout()
         qa_label = QLabel("Additional Q&A (optional):")
         self.qa_edit = QTextEdit()
-        self.qa_edit.setPlaceholderText("Enter any example Q&A pairs here...")
+        self.qa_edit.setPlaceholderText("Paste previously generated Q&A here to avoid duplicates...")
         qa_layout.addWidget(qa_label)
         qa_layout.addWidget(self.qa_edit)
         layout.addLayout(qa_layout)
@@ -270,7 +308,7 @@ class GeminiTesterApp(QMainWindow):
         input_layout.addWidget(self.input_edit)
         layout.addLayout(input_layout)
 
-        # File load layout
+        # File load layout for manual text
         load_layout = QHBoxLayout()
         load_label = QLabel("Or Load Text from File:")
         self.load_edit = QLineEdit()
@@ -282,14 +320,14 @@ class GeminiTesterApp(QMainWindow):
         load_layout.addWidget(load_btn)
         layout.addLayout(load_layout)
 
-        # Run button (updated text)
-        self.run_btn = QPushButton("Create Fine-Tuning Dataset")
+        # Run button
+        self.run_btn = QPushButton("Create Fine-Tuning Dataset in Dolly Format")
         self.run_btn.clicked.connect(self.run_gemini)
         layout.addWidget(self.run_btn)
 
-        # Output display layout (updated label)
+        # Output display layout
         output_layout = QVBoxLayout()
-        output_label = QLabel("Fine-Tuning Dataset Output:")
+        output_label = QLabel("Dolly Fine-Tuning Dataset Output:")
         self.output_edit = QTextEdit()
         self.output_edit.setReadOnly(True)
         output_layout.addWidget(output_label)
@@ -366,6 +404,8 @@ class GeminiTesterApp(QMainWindow):
         model_name = self.model_combo.currentText()
         input_text = self.input_edit.toPlainText().strip()
         machine_name = self.machine_edit.text().strip()
+        context = self.context_edit.text().strip()
+        category = self.category_edit.text().strip()
         additional_qa = self.qa_edit.toPlainText().strip()
         
         if not machine_name:
@@ -374,13 +414,14 @@ class GeminiTesterApp(QMainWindow):
             return
 
         if not input_text:
-            self.log("Error: Input text is empty.")
+            self.log("Error: Input manual text is empty.")
             QMessageBox.warning(self, "Input Error", "Please enter or load some manual text to process.")
             return
 
         # Log the request advisory (does not block the call)
         self.rate_limiter.log_request(model_name)
 
+        # Set generation_config based on the model selected
         if model_name == "gemini-1.5-flash-8b":
             generation_config = {
                 "temperature": 0.7,
@@ -402,7 +443,15 @@ class GeminiTesterApp(QMainWindow):
         self.save_btn.setEnabled(False)
         self.output_edit.clear()
 
-        self.worker = GeminiOneShotWorker(input_text, model_name, generation_config, machine_name, additional_qa)
+        self.worker = GeminiOneShotWorker(
+            text=input_text,
+            model_name=model_name,
+            generation_config=generation_config,
+            machine_name=machine_name,
+            context=context,
+            category=category,
+            additional_qa=additional_qa
+        )
         self.worker.progress_msg.connect(self.log)
         self.worker.finished.connect(self.display_response)
         self.worker.start()
@@ -439,6 +488,9 @@ class GeminiTesterApp(QMainWindow):
     def log(self, message):
         self.log_edit.append(message)
 
+###############################################################################
+# Main entry point
+###############################################################################
 def main():
     app = QApplication(sys.argv)
     # Dark theme inspired by Material design for dark mode
@@ -476,7 +528,7 @@ def main():
             color: #E0E0E0;
         }
     """)
-    window = GeminiTesterApp()
+    window = GeminiDollyDatasetCreatorApp()
     window.show()
     sys.exit(app.exec_())
 

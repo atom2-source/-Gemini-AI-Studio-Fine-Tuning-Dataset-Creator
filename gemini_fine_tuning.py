@@ -166,42 +166,41 @@ class GeminiOneShotWorker(QThread):
             self.finished.emit(error_msg)
 
     def build_prompt(self, input_text, machine_name, additional_qa):
-        # Few-shot example with a sample manual excerpt.
         few_shot_examples = (
-            "Example Manual Excerpt:\n"
-            "Machine: CNC Lathe\n"
-            "Part: Main Spindle, part number 1234567, operates at 2000 RPM, requires lubrication every 500 hours.\n\n"
-            "Expected Output (Fine-Tuning Dataset Entry):\n"
-            "[\n"
-            "  {\n"
-            '    "question": "For CNC Lathe, what is the part number for the Main Spindle?",\n'
-            '    "answer": "1234567"\n'
-            "  },\n"
-            "  {\n"
-            '    "question": "For CNC Lathe, what are the operational details of the Main Spindle?",\n'
-            '    "answer": "Operates at 2000 RPM and requires lubrication every 500 hours."\n'
-            "  }\n"
-            "]\n"
-        )
+        "Example Manual Excerpt:\n"
+        "Machine: CNC Lathe\n"
+        "Part: Main Spindle, part number 1234567, operates at 2000 RPM, requires lubrication every 500 hours.\n\n"
+        "Expected Output (Fine-Tuning Dataset Entry):\n"
+        "[\n"
+        "  {\n"
+        '    "question": "For CNC Lathe, what is the part number for the Main Spindle?",\n'
+        '    "answer": "1234567"\n'
+        "  },\n"
+        "  {\n"
+        '    "question": "For CNC Lathe, what are the operational details of the Main Spindle?",\n'
+        '    "answer": "Operates at 2000 RPM and requires lubrication every 500 hours."\n'
+        "  }\n"
+        "]\n"
+    )
         
         qa_prompt = ""
         if additional_qa:
             qa_prompt = (
-                "The user provided the following Q&A examples:\n"
+                "The user provided the following additional Q&A examples for reference (do NOT repeat these exactly):\n"
                 f"{additional_qa}\n\n"
-                "Based on these examples, generate different questions and answers, and also review the manual for any parts or identification numbers not covered. "
-                "Produce additional fine-tuning dataset entries as needed.\n\n"
+                "Based on these reference examples, generate new and distinct questions and answers. Do not duplicate any of the provided examples. "
+                "Ensure your generated dataset covers any details or parts not already addressed by the examples.\n\n"
             )
-        
+    
         prompt = (
             "You are an expert in comprehending technical manuals and creating fine-tuning datasets. Your task is to extract every detail from the manual provided below. "
-            "For each part mentioned, generate at least one question that includes the machine name (as specified) and asks for the part number, along with additional questions covering operational or descriptive details. "
-            "Ensure that every question includes the machine name and is answered with the correct information. "
-            "Your output should be a JSON array where each element represents a fine-tuning data point with the keys 'question' and 'answer'. "
-            "Exhaust all available details.\n\n"
+            "For each part mentioned, generate at least one new question that includes the machine name (as specified) and asks for the part number, along with additional questions covering operational or descriptive details. "
+            "Do NOT repeat any questions or answers already provided in the reference examples. Instead, produce new and unique fine-tuning dataset entries that cover any missing details. "
+            "Your output must be a JSON array where each element is an object with two keys: 'question' and 'answer'. "
+            "Ensure that every question includes the machine name and that the answer contains correct information based on the manual.\n\n"
             f"{few_shot_examples}\n"
             f"{qa_prompt}"
-            f"Machine Name: {machine_name}\n"
+            f"Machine Name: {machine_name}\n\n"
             "Manual Text:\n"
             f"{input_text}"
         )

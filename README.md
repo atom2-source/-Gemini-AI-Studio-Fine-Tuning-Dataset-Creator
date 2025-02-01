@@ -15,15 +15,11 @@ The application includes real-time tracking of API usage with built-in rate limi
 Installation & Setup
 
 Clone the repository
-Install required packages
+Install required packages![Screenshot 2025-02-02 013116](https://github.com/user-attachments/assets/8cb04008-a886-417b-b906-b4688aaa0756)
+
 Set your GEMINI_API_KEY environment variable
 Run the application
 
 Dataset Format
 The tool now generates data in the Dolly instruction format:
-jsonCopy{
-    "instruction": "Question or task to be performed",
-    "context": "Relevant context or environment",
-    "response": "Detailed answer or response",
-    "category": "Classification or type of query"
-}
+![Screenshot 2025-02-02 013038](https://github.com/user-attachments/assets/aa07fe50-8028-419e-931b-a47a4725ebe1)
